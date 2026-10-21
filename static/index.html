@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en" data-persona="chidi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Catbot</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Figtree:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="shell">
+<div class="app">
+  <header>
+    <h1><span id="logo"></span>Catbot</h1>
+    <div class="head-right">
+      <span class="model" id="modelInfo"></span>
+      <div class="status" id="status" data-s="idle"><span class="dot"></span><span id="statusText">Ready</span></div>
+      <button type="button" class="btn-ghost small" id="panelToggle">Cat stuff</button>
+    </div>
+  </header>
+
+  <nav class="personas" id="personas" aria-label="Choose who to talk to"></nav>
+
+  <section class="stage">
+    <div class="orb-wrap"><canvas id="orb" width="176" height="176" aria-hidden="true"></canvas><div class="orb-face" id="orbFace"></div></div>
+    <div class="stage-text">
+      <strong id="stageHead">Tap the mic to talk</strong>
+      <span id="stageSub">I'll stop listening when you pause, then answer out loud.</span>
+    </div>
+  </section>
+
+  <div class="controls">
+    <label>Voice <select id="voiceSel"></select></label>
+    <label><input type="checkbox" id="autoSpeak" checked> Speak replies</label>
+    <label><input type="checkbox" id="handsFree" checked> Hands-free</label>
+    <button class="btn-ghost small" id="clearBtn">New chat</button>
+  </div>
+
+  <div class="log" id="log" aria-live="polite"></div>
+
+  <form class="dock" id="dock">
+    <button type="button" class="btn-mic" id="micBtn" aria-pressed="false" aria-label="Talk">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+    </button>
+    <textarea id="input" rows="1" placeholder="Or type a message…"></textarea>
+    <button type="button" class="btn-ghost" id="stopBtn" hidden>Stop</button>
+    <button type="submit" class="btn-send" id="sendBtn">Send</button>
+  </form>
+</div>
+
+<aside class="panel" id="panel" aria-label="Cat stuff">
+  <div class="panel-head"><h2>Cat stuff</h2><button type="button" class="btn-ghost small" id="panelClose">Close</button></div>
+
+  <section class="card">
+    <h3>On the table <span class="count" id="todoCount"></span></h3>
+    <ul class="list todos" id="todoList"></ul>
+    <ul class="list done" id="doneList"></ul>
+  </section>
+
+  <section class="card">
+    <h3>Nap timers <span class="count" id="timerCount"></span></h3>
+    <ul class="list timers" id="timerList"></ul>
+  </section>
+
+  <section class="card jar-card">
+    <h3>Jianyu's treat jar</h3>
+    <div class="jar-row">
+      <svg class="jar" viewBox="0 0 64 84" aria-hidden="true">
+        <defs><clipPath id="jarClip"><path d="M12 22 h40 v50 q0 8 -8 8 h-24 q-8 0 -8 -8 z"/></clipPath></defs>
+        <rect id="jarFill" x="8" y="78" width="48" height="0" clip-path="url(#jarClip)" class="jar-fill"/>
+        <path d="M12 22 h40 v50 q0 8 -8 8 h-24 q-8 0 -8 -8 z" class="jar-glass"/>
+        <rect x="9" y="12" width="46" height="10" rx="3" class="jar-lid"/>
+      </svg>
+      <div>
+        <div class="jar-num"><b id="jarEaten">0</b> treats eaten</div>
+        <div class="jar-owed" id="jarOwed"></div>
+        <div class="jar-recent" id="jarRecent"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h3>Cat Brain <span class="count" id="memCount"></span></h3>
+    <ul class="list mem" id="memList"></ul>
+  </section>
+</aside>
+</div>
+<script src="/static/icons.js"></script>
+<script>document.getElementById("logo").innerHTML = window.PAW_ICON;</script>
+<script src="/static/app.js"></script>
+</body>
+</html>
