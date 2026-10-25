@@ -24,6 +24,15 @@ TOOL_RULES = (
     "what to try. Only claim you did something if the tool result says ok."
 )
 
+VISION_RULES = (
+    "This turn includes an image (camera frame, screenshot or photo). Look at it carefully and "
+    "answer about what is actually there; don't invent details you can't see. Describe things briefly "
+    "and naturally, the way you'd talk, not like a caption list. If text in the image matters, read it. "
+    "You can still use your tools, for example adding a to-do for something you spot. "
+    "React in character: Chidi stays unimpressed but notices sharp details; Jianyu spots anything "
+    "edible first and asks for a bite."
+)
+
 COMMON_TOOLS = [
     "save_memory", "forget_memory", "get_weather",
     "set_timer", "list_timers", "cancel_timer",

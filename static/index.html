@@ -38,10 +38,32 @@
 
   <div class="log" id="log" aria-live="polite"></div>
 
+  <!-- what the cat can see: live camera/screen preview + attached photos -->
+  <div class="eyes" id="eyes" hidden>
+    <div class="live" id="live" hidden>
+      <video id="liveVideo" muted playsinline autoplay></video>
+      <span class="live-tag" id="liveTag">Camera</span>
+      <button type="button" class="live-off" id="liveOff" aria-label="Stop sharing">×</button>
+    </div>
+    <div class="thumbs" id="thumbs"></div>
+    <span class="eyes-hint" id="eyesHint"></span>
+  </div>
+
   <form class="dock" id="dock">
     <button type="button" class="btn-mic" id="micBtn" aria-pressed="false" aria-label="Talk">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
     </button>
+    <div class="eye-wrap">
+      <button type="button" class="btn-mic" id="eyeBtn" aria-label="Show the cat something" aria-haspopup="menu" aria-expanded="false" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><ellipse cx="12" cy="12" rx="1.6" ry="3.2" fill="currentColor"/></svg>
+      </button>
+      <div class="eye-menu" id="eyeMenu" role="menu" hidden>
+        <button type="button" role="menuitem" data-src="camera">Camera</button>
+        <button type="button" role="menuitem" data-src="screen">Share screen</button>
+        <button type="button" role="menuitem" data-src="photo">Photo…</button>
+      </div>
+      <input type="file" id="fileIn" accept="image/*" multiple hidden>
+    </div>
     <textarea id="input" rows="1" placeholder="Or type a message…"></textarea>
     <button type="button" class="btn-ghost" id="stopBtn" hidden>Stop</button>
     <button type="submit" class="btn-send" id="sendBtn">Send</button>

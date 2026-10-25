@@ -4,6 +4,7 @@ Catbot - a voice AI agent with cat personas, built on free services.
   Speech -> text : Groq Whisper (free tier)          POST /api/transcribe
   AI brain       : Groq GPT-OSS + tools (agent loop) POST /api/chat
   Tools          : memory, weather, timers, to-dos, treat jar  (see tools.py)
+  Vision         : camera / screen / photos -> Groq Qwen vision model (same tools)
   Text -> speech : Microsoft Edge voices (edge-tts)   POST /api/speak
 
 Your Groq key stays on this server (read from .env). The browser UI lives in ./static.
@@ -44,6 +45,10 @@ STT_LANGUAGE = os.getenv("STT_LANGUAGE", "")  # e.g. "en" or "tl"; blank = auto-
 TTS_VOICE = os.getenv("TTS_VOICE", "en-US-AriaNeural")
 HOST = os.getenv("HOST", "127.0.0.1")
 PORT = int(os.getenv("PORT", "8000"))
+VISION_MODEL = os.getenv("VISION_MODEL", "qwen/qwen3.8-27b")  # used for turns that include images
+VISION_ENABLED = True  # turned off at startup if Groq doesn't offer VISION_MODEL
+MAX_IMAGES = 3         # Groq's per-request limit for Qwen vision
+MAX_IMAGE_CHARS = 4_000_000  # ~3 MB per base64 image; the browser shrinks images well below this
 REASONING_EFFORT = os.getenv("REASONING_EFFORT", "low")  # gpt-oss only: low / medium / high
 MAX_HISTORY = 20
 MAX_TOOL_ROUNDS = 4  # how many tool steps the agent may take before it must answer
@@ -82,7 +87,7 @@ client = AsyncOpenAI(api_key=GROQ_API_KEY, base_url=GROQ_BASE_URL)  # Groq speak
 
 async def check_models():
     """Groq retires models now and then. If the configured chat model is gone, pick a close replacement."""
-    global CHAT_MODEL
+    global CHAT_MODEL, VISION_ENABLED
     try:
         ids = [m.id for m in (await client.models.list()).data]
     except AuthenticationError:
@@ -98,7 +103,11 @@ async def check_models():
         CHAT_MODEL = pick
     if STT_MODEL not in ids:
         print(f"  Warning: speech model '{STT_MODEL}' isn't listed. Available: {[i for i in ids if 'whisper' in i]}")
-    print(f"  Chat: {CHAT_MODEL} | Speech-to-text: {STT_MODEL} | Voice: {TTS_VOICE}")
+    if VISION_MODEL not in ids:
+        VISION_ENABLED = False
+        print(f"  Vision model '{VISION_MODEL}' isn't available on your Groq account, so vision is off.")
+    print(f"  Chat: {CHAT_MODEL} | Vision: {VISION_MODEL if VISION_ENABLED else 'off'} | "
+          f"Speech-to-text: {STT_MODEL} | Voice: {TTS_VOICE}")
 
 
 @asynccontextmanager
@@ -119,6 +128,8 @@ class Message(BaseModel):
 class ChatRequest(BaseModel):
     messages: list[Message]
     persona: str = DEFAULT_PERSONA
+    images: list[str] = []   # data:image/...;base64,... attached to the latest user message
+    image_source: str = ""   # "camera", "screen" or "photo", so the cat knows what it's looking at
 
 
 class SpeakRequest(BaseModel):
@@ -144,6 +155,9 @@ async def config():
         "voices": [{"id": v, "label": l} for v, l in VOICES],
         "voice": TTS_VOICE,
         "chat_model": CHAT_MODEL,
+        "vision": VISION_ENABLED,
+        "vision_model": VISION_MODEL,
+        "max_images": MAX_IMAGES,
         "default_persona": DEFAULT_PERSONA,
         "personas": [
             {"id": pid, "name": p["name"], "tagline": p["tagline"], "voice": p["voice"], "greeting": p["greeting"]}
@@ -168,17 +182,18 @@ async def transcribe(audio: UploadFile = File(...)):
     return {"text": result.text.strip()}
 
 
-LEAKED_TAGS = re.compile(r"<function[\s\S]*?</function>|<\|.*?\|>", re.I)
+LEAKED_TAGS = re.compile(r"<think>[\s\S]*?</think>|<function[\s\S]*?</function>|<\|.*?\|>", re.I)
 
 
 def friendly(e: Exception) -> str:
     return api_error(e).detail
 
 
-async def complete(messages, tool_schemas, allow_tools=True):
+async def complete(messages, tool_schemas, allow_tools=True, model=None):
     """One model call. Retries once if the model garbles a tool call, then falls back to no tools."""
-    kwargs = {"model": CHAT_MODEL, "messages": messages, "temperature": 0.7}
-    if CHAT_MODEL.startswith("openai/gpt-oss"):
+    model = model or CHAT_MODEL
+    kwargs = {"model": model, "messages": messages, "temperature": 0.7}
+    if model.startswith("openai/gpt-oss"):
         kwargs["reasoning_effort"] = REASONING_EFFORT  # keep thinking short so voice replies stay snappy
     if tool_schemas and allow_tools:
         kwargs |= {"tools": tool_schemas, "tool_choice": "auto"}
@@ -203,12 +218,26 @@ async def chat(req: ChatRequest):
     messages = [{"role": "system", "content": system_prompt(req.persona, tools.context_block())}]
     messages += [m.model_dump() for m in req.messages[-MAX_HISTORY:]]
 
+    # Vision: attach images to the latest user message and switch this turn to the vision model.
+    images = [i for i in req.images if i.startswith("data:image/") and len(i) <= MAX_IMAGE_CHARS][:MAX_IMAGES]
+    model = CHAT_MODEL
+    if images and VISION_ENABLED and messages[-1]["role"] == "user":
+        where = {"camera": "a live frame from the user's camera",
+                 "screen": "a screenshot of the user's screen",
+                 "photo": "a photo the user shared"}.get(req.image_source, "an image the user shared")
+        messages[0]["content"] += "\n\n" + personas.VISION_RULES
+        messages[-1]["content"] = (
+            [{"type": "text", "text": f"[Attached: {where}]\n{messages[-1]['content']}"}]
+            + [{"type": "image_url", "image_url": {"url": img}} for img in images]
+        )
+        model = VISION_MODEL
+
     async def gen():
         ev = lambda obj: json.dumps(obj, ensure_ascii=False) + "\n"
         used_tools = False
         try:
             for rnd in range(MAX_TOOL_ROUNDS + 1):
-                msg = await complete(messages, tool_schemas, allow_tools=rnd < MAX_TOOL_ROUNDS)
+                msg = await complete(messages, tool_schemas, allow_tools=rnd < MAX_TOOL_ROUNDS, model=model)
                 if not msg.tool_calls:
                     text = LEAKED_TAGS.sub("", msg.content or "").strip()
                     if used_tools:
@@ -236,7 +265,10 @@ async def chat(req: ChatRequest):
                     messages.append({"role": "tool", "tool_call_id": call.id,
                                      "content": json.dumps(result, ensure_ascii=False, default=str)})
         except Exception as e:
-            yield ev({"type": "error", "message": friendly(e)})
+            msg = friendly(e)
+            if images and isinstance(e, BadRequestError):
+                msg += " (The vision model couldn't read that image. Try a smaller or different picture.)"
+            yield ev({"type": "error", "message": msg})
 
     return StreamingResponse(gen(), media_type="application/x-ndjson")
 

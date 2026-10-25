@@ -1,7 +1,7 @@
 # Catbot 🐾
 
 **A voice AI agent with cat personalities.** Talk to Chidi or Jianyu in your browser. They listen,
-think, use tools on their own, and answer out loud in character. The whole stack runs on free services.
+see, think, use tools on their own, and answer out loud in character. The whole stack runs on free services.
 
 ![Catbot screenshot](docs/screenshot.png)
 
@@ -31,6 +31,21 @@ The **Cat stuff** panel shows your to-dos, live timer countdowns, the treat jar 
 Tick a to-do to knock it off the table yourself. Every finished to-do earns Jianyu a treat you owe her.
 When a timer goes off, the current cat says the reminder out loud.
 
+## Vision: show the cats things
+
+Tap the **eye button** next to the mic:
+
+| Source | How | What the cat gets |
+|---|---|---|
+| **Camera** | Eye button → Camera | A snapshot of your webcam with each message while it's on |
+| **Share screen** | Eye button → Share screen | A screenshot of the window or screen you pick, with each message |
+| **Photo** | Eye button → Photo…, **Ctrl+V** a screenshot, or **drag and drop** an image | Up to 3 images with your next message |
+
+Try: "What do you see?", "Read this error for me", "What can I cook with this?", or just send a photo with no text.
+Turns with an image use Groq's vision model (`qwen/qwen3.8-27b`); other turns stay on GPT-OSS. The cats can still
+use their tools while looking, e.g. "add everything on this shopping list to my to-dos".
+Images are shrunk to 1024px in the browser before upload and are never saved.
+
 ## How it works
 
 ```
@@ -38,6 +53,8 @@ You speak ─► browser records (WAV) ─► /api/transcribe   Groq Whisper lar
                                            │
                                            ▼
                                       /api/chat         Groq GPT-OSS 120B + tools (agent loop)
+                                           ▲              (Qwen 3.8 27B vision when an image is attached)
+           camera / screen / photo ────────┘
                                            │              memory · weather · timers · to-dos · treats
                                            ▼
             speakers ◄── /api/speak ◄── reply text      edge-tts (Microsoft Edge voices)
@@ -47,6 +64,7 @@ You speak ─► browser records (WAV) ─► /api/transcribe   Groq Whisper lar
 |---|---|---|
 | Speech to text | Groq `whisper-large-v3-turbo` | Free tier |
 | Brain + tool calling | Groq `openai/gpt-oss-120b` | Free tier |
+| Vision (+ tools) | Groq `qwen/qwen3.8-27b` | Free tier |
 | Text to speech | edge-tts (Microsoft Edge online voices) | Free |
 | Weather | Open-Meteo | Free, no key |
 | Server | Python + FastAPI | Runs on your PC |
@@ -85,6 +103,7 @@ Use Chrome or Edge, and open it at `http://localhost:8000`. Browsers only allow 
 | `GROQ_API_KEY` | (required) | Free at console.groq.com |
 | `CHAT_MODEL` | `openai/gpt-oss-120b` | Or `openai/gpt-oss-20b` (faster), `qwen/qwen3.8-27b` |
 | `REASONING_EFFORT` | `low` | GPT-OSS thinking time: `low`, `medium` or `high` |
+| `VISION_MODEL` | `qwen/qwen3.8-27b` | Used only for turns with an image. Vision turns off if it's unavailable |
 | `STT_MODEL` | `whisper-large-v3-turbo` | |
 | `STT_LANGUAGE` | auto | e.g. `en` or `tl` |
 | `HOME_CITY` | `Manila` | Default city for weather |
@@ -107,7 +126,7 @@ If Groq retires the chat model, Catbot picks a replacement when it starts and pr
 | `app.py` | FastAPI server: transcribe, agent loop, speak, panel API |
 | `tools.py` | Agent tools: memory, weather, timers, to-dos, treat jar |
 | `personas.py` | Chidi, Jianyu, and any cats you add |
-| `static/` | Browser UI: recording, silence detection, playback, themes, cat icons |
+| `static/` | Browser UI: recording, silence detection, camera/screen/photo capture, playback, themes, cat icons |
 | `data/` | Your saved memories, to-dos, timers and treats (created on first run, not committed) |
 | `run.bat` | One-click start on Windows |
 | `.env` | Your key and settings (never committed) |
@@ -117,6 +136,7 @@ If Groq retires the chat model, Catbot picks a replacement when it starts and pr
 - Groq's free tier has per-minute and per-day request limits. If you hit one, Catbot tells you; wait and try again.
 - edge-tts uses Microsoft Edge's online voices. It's free but unofficial, and needs internet.
 - Reminders are spoken only while the page is open.
+- Each image costs about 2,000 tokens of your Groq free-tier allowance, so turn the camera off when you don't need it.
 
 ## Roadmap
 

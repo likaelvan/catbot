@@ -24,9 +24,14 @@
   }
   const holder = el => el.closest(".row") || el.closest(".msg");   // the bubble's outer element in the log
   const icon = id => (window.PERSONA_ICONS || {})[id] || (window.PERSONA_ICONS || {})._default || "";
-  function add(kind, text){
+  function add(kind, text, imgs){
     const d = document.createElement("div"); d.className = "msg " + kind;
     if (kind !== "note"){ const t = document.createElement("span"); t.className = "tag"; t.textContent = kind === "me" ? "You" : (persona?.name || "AI"); d.appendChild(t); }
+    if (imgs?.length){   // images you showed the cat
+      const shots = document.createElement("div"); shots.className = "shots";
+      imgs.forEach(u => { const im = new Image(); im.src = u; im.alt = "What you showed"; shots.appendChild(im); });
+      d.appendChild(shots);
+    }
     const body = document.createElement("span"); body.textContent = text; d.appendChild(body);
     if (kind === "ai"){   // AI messages get the persona's little face beside them
       const row = document.createElement("div"); row.className = "row ai";
@@ -69,6 +74,9 @@
     voiceIds = cfg.voices.map(v => v.id);
     cfg.voices.forEach(v => { const o = document.createElement("option"); o.value = v.id; o.textContent = v.label; sel.appendChild(o); });
     $("modelInfo").textContent = cfg.chat_model + " on Groq";
+    vision.enabled = !!cfg.vision; vision.max = cfg.max_images || 3;
+    $("eyeBtn").hidden = !vision.enabled;
+    if (vision.enabled) $("modelInfo").title = "Vision: " + cfg.vision_model;
     const nav = $("personas");
     cfg.personas.forEach(p => {
       personas[p.id] = p;
@@ -224,10 +232,14 @@
 
   // ---------- chat ----------
   async function send(text){
-    if (!text || busy) return;
+    if (busy || (!text && !vision.attached.length)) return;
+    const shot = vision.collect();                     // camera/screen frame and/or attached photos
+    if (!text) text = "What do you think of this?";
     const tid = ++turnId; busy = true; replyFinished = false; sendBtn.disabled = true;
     input.value = ""; autosize();
-    add("me", text); history.push({role:"user", content:text});
+    add("me", text, shot.images);
+    const histText = shot.images.length ? text + ` [showed ${shot.images.length} image${shot.images.length > 1 ? "s" : ""} from ${shot.source}]` : text;
+    history.push({role:"user", content: histText});
     const bubble = add("ai","…");
     setState("thinking","Thinking…","");
     chatCtl = new AbortController();
@@ -241,7 +253,7 @@
     };
     try {
       const r = await fetch("/api/chat", {method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({messages: history, persona: persona?.id}), signal: chatCtl.signal});
+        body: JSON.stringify({messages: history, persona: persona?.id, images: shot.images, image_source: shot.source}), signal: chatCtl.signal});
       if (!r.ok){ let d = ""; try { d = (await r.json()).detail; } catch(_){} throw new Error(d || "Chat request failed (" + r.status + ")."); }
       // The server streams one JSON event per line: tool steps, panel state, then the reply.
       const reader = r.body.getReader(), dec = new TextDecoder(); let buf = "";
@@ -383,4 +395,102 @@
   }, 5000);
   if (window.Notification && Notification.permission === "default")
     document.addEventListener("click", () => Notification.requestPermission().catch(() => {}), {once:true});
+
+  // ---------- vision: camera, screen share, photos ----------
+  const vision = { enabled:false, max:3, attached:[], stream:null, kind:"" };
+  const MAX_SIDE = 1024;                                  // shrink before upload: faster, cheaper, under Groq limits
+  function shrink(src, w, h){
+    const k = Math.min(1, MAX_SIDE / Math.max(w, h));
+    const c = document.createElement("canvas"); c.width = Math.round(w*k); c.height = Math.round(h*k);
+    c.getContext("2d").drawImage(src, 0, 0, c.width, c.height);
+    return c.toDataURL("image/jpeg", 0.82);
+  }
+  async function attachFiles(files){
+    if (!vision.enabled) return;
+    for (const f of files){
+      if (!f.type.startsWith("image/")) continue;
+      if (vision.attached.length >= vision.max){ add("note", `You can show up to ${vision.max} images at a time.`); break; }
+      try { const bmp = await createImageBitmap(f); vision.attached.push(shrink(bmp, bmp.width, bmp.height)); }
+      catch(e){ add("note", "Couldn't open that image. Try a JPG or PNG."); }
+    }
+    renderEyes();
+  }
+  function renderEyes(){
+    const t = $("thumbs"); t.innerHTML = "";
+    vision.attached.forEach((u, i) => {
+      const w = document.createElement("div"); w.className = "thumb";
+      const im = new Image(); im.src = u; im.alt = "Attached image " + (i+1);
+      const x = document.createElement("button"); x.type = "button"; x.textContent = "×"; x.setAttribute("aria-label","Remove image");
+      x.onclick = () => { vision.attached.splice(i, 1); renderEyes(); };
+      w.append(im, x); t.appendChild(w);
+    });
+    const live = !!vision.stream;
+    $("live").hidden = !live;
+    $("eyes").hidden = !live && !vision.attached.length;
+    $("eyeBtn").classList.toggle("on", live);
+    $("eyesHint").textContent = live
+      ? `${persona?.name || "The cat"} sees a snapshot of your ${vision.kind} with each message.`
+      : vision.attached.length ? "Sent with your next message." : "";
+  }
+  async function startLive(kind){
+    stopLive();
+    try {
+      vision.stream = kind === "screen"
+        ? await navigator.mediaDevices.getDisplayMedia({video:true, audio:false})
+        : await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280}, height:{ideal:720}, facingMode:"user"}, audio:false});
+    } catch(e){
+      vision.stream = null;
+      if (e.name !== "NotAllowedError" || kind === "camera")
+        add("note", kind === "camera" ? "Couldn't open the camera. Allow camera access from the address bar and try again." : "Screen sharing was cancelled.");
+      return renderEyes();
+    }
+    vision.kind = kind;
+    $("liveVideo").srcObject = vision.stream;
+    $("liveTag").textContent = kind === "camera" ? "Camera" : "Screen";
+    vision.stream.getVideoTracks()[0].onended = stopLive;   // e.g. "Stop sharing" in the browser bar
+    renderEyes();
+  }
+  function stopLive(){
+    vision.stream?.getTracks().forEach(t => t.stop());
+    vision.stream = null; vision.kind = ""; $("liveVideo").srcObject = null;
+    renderEyes();
+  }
+  vision.collect = () => {                                 // called when a message is sent
+    const images = [], v = $("liveVideo");
+    let source = vision.attached.length ? "photo" : "";
+    if (vision.stream && v.readyState >= 2 && v.videoWidth){ images.push(shrink(v, v.videoWidth, v.videoHeight)); source = vision.kind; }
+    images.push(...vision.attached);
+    vision.attached = []; renderEyes();
+    return { images: images.slice(0, vision.max), source };
+  };
+
+  const eyeMenu = $("eyeMenu");
+  const closeMenu = () => { eyeMenu.hidden = true; $("eyeBtn").setAttribute("aria-expanded","false"); };
+  $("eyeBtn").onclick = e => {
+    e.stopPropagation();
+    eyeMenu.querySelector('[data-src="camera"]').textContent = vision.kind === "camera" ? "Turn camera off" : "Camera";
+    eyeMenu.querySelector('[data-src="screen"]').textContent = vision.kind === "screen" ? "Stop sharing screen" : "Share screen";
+    eyeMenu.hidden = !eyeMenu.hidden; $("eyeBtn").setAttribute("aria-expanded", String(!eyeMenu.hidden));
+  };
+  eyeMenu.addEventListener("click", e => {
+    const src = e.target.closest("button")?.dataset.src; if (!src) return;
+    closeMenu();
+    if (src === "photo") return $("fileIn").click();
+    if (vision.kind === src) stopLive(); else startLive(src);
+  });
+  document.addEventListener("click", e => { if (!e.target.closest(".eye-wrap")) closeMenu(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") closeMenu(); });
+  $("liveOff").onclick = stopLive;
+  $("fileIn").onchange = e => { attachFiles(e.target.files); e.target.value = ""; };
+  document.addEventListener("paste", e => {                // Ctrl+V a screenshot
+    const files = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith("image/"));
+    if (files.length && vision.enabled){ e.preventDefault(); attachFiles(files); }
+  });
+  document.addEventListener("dragover", e => { if (vision.enabled && e.dataTransfer?.types.includes("Files")){ e.preventDefault(); document.body.classList.add("dropping"); } });
+  document.addEventListener("dragleave", e => { if (!e.relatedTarget) document.body.classList.remove("dropping"); });
+  document.addEventListener("drop", e => {
+    document.body.classList.remove("dropping");
+    if (!vision.enabled || !e.dataTransfer?.files.length) return;
+    e.preventDefault(); attachFiles(e.dataTransfer.files);
+  });
 })();
